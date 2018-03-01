@@ -31,7 +31,7 @@ Arch: $ARCH
 "
 sleep 1
 
-if [ $ARCH != "i686" ] && [ $ARCH != "x86_64" ]; then # Check if chromebook is compatible
+if [[ $ARCH != "i686" ]] && [[ $ARCH != "x86_64" ]]; then # Check if chromebook is compatible
   printf "Your device doesn't support CRI yet! :(\nExiting..."
   sleep 0.5
   exit 1
