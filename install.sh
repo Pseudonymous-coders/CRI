@@ -4,7 +4,8 @@
 CTEMP=/tmp
 CGLOBS=$CTEMP/globs
 URL="https://raw.githubusercontent.com/Pseudonymous-coders/CRI/master"
-CONFIGS="$URL/configs"
+URLR="https://raw.githubusercontent.com/Pseudonymous-coders/CRI-resources/master"
+CONFIGS="$URLR/configs"
 GLOBS="$CONFIGS/globs"
 
 # Pull the latest globs functions
