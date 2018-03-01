@@ -40,7 +40,7 @@ fi
 
 printf "This installation will require internet conection\n\n"
 
-if ask "Are you comfortable waiting a little bit?"; then
+if ask "Are you comfortable waiting a little bit"; then
     echo "Continuing..."
 else
     echo "Exiting..."
