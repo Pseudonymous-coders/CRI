@@ -68,7 +68,7 @@ for NAME in $NAMES; do #Downloads all nessisary files from github to /usr/local/
     sudo curl -Ls "$PKGURL/$NAME" -o $CPKG/${NAME##*/}
     sudo chmod 755 *
     sudo chown $USER:$USER ${NAME##*/}
-    ./${NAME##*/} # Run setup in seperate thread 
+    sudo bash ${NAME##*/} # Run setup in seperate thread 
     fixowner 2&>/dev/null
 done
 
