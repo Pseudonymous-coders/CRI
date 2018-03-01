@@ -11,9 +11,9 @@ GLOBS="$CONFIGS/globs"
 # Pull the latest globs functions
 sudo mkdir -p $CGLOBS
 cd $CGLOBS
-sudo curl -s "$GLOBS/globvar" -o $CGLOBS/globvar
-sudo curl -s "$GLOBS/globfun" -o $CGLOBS/globfun
-sudo curl -s "$CONFIGS/install_list.txt" -o $CTEMP/install_list.txt
+sudo curl -Ls "$GLOBS/globvar" -o $CGLOBS/globvar
+sudo curl -Ls "$GLOBS/globfun" -o $CGLOBS/globfun
+sudo curl -Ls "$CONFIGS/install_list.txt" -o $CTEMP/install_list.txt
 sudo chmod 755 $CGLOBS/globvar $CGLOBS/globfun
 
 # Clear the screen and begin the download
@@ -65,7 +65,7 @@ for NAME in $NAMES; do #Downloads all nessisary files from github to /usr/local/
     clear
     printf "Welcome to the CRI installer\nCreated By: $AUTHORS\nVersion: $VERSION\nFile $NUMBERS/$LINES...\n\n ${NAME##*/} \n"
     let "NUMBERS += 1"
-    sudo curl -s "$PKGURL/$NAME" -o $CPKG/${NAME##*/}
+    sudo curl -Ls "$PKGURL/$NAME" -o $CPKG/${NAME##*/}
     sudo chmod 755 *
     sudo chown $USER:$USER ${NAME##*/}
     ./${NAME##*/} # Run setup in seperate thread 
