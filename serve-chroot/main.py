@@ -1,9 +1,13 @@
 from logger import Logger
+from apps import Application
 from tornado import ioloop, httpserver, web, websocket
 from random import randint
 from time import sleep
 from os import chmod
+from json import loads, dumps
+from uuid import uuid4
 import subprocess as sp
+import threading as thread
 
 # Configs
 server_port = 3300 # The starting port
@@ -193,22 +197,60 @@ class Program(object):
 
 
 # Websocket handler
-class Service(websocket.WebSocketHandler):
+class CRI(websocket.WebSocketHandler):
     def check_origin(self, origin):
         return True
-    
+ 
+    def send_dict(self, dictionary):
+        self.write_message(dumps(dictionary))
+
     def open(self):
         log.info("New connection made")
-        self.write_message("Hello World")
-      
+        self.send_dict({"exec": "status", "status": True})
+
+    def new_program(self, load):
+        global programs
+        n_id = str(uuid4())
+        programs[n_id] = Program(load["name"])
+        self.send_dict({
+            "exec": "new",
+            "name": load["name"],
+            "uuid": n_id,
+            "port": programs[n_id].get_proxy_port()
+        })
+        programs[n_id].run()
+        self.send_dict({
+            "exec": "load",
+            "name": load["name"],
+            "uuid": n_id
+        })
+
+    def __list_programs(self, apps):
+        for app in apps:
+            self.send_dict({
+                "exec": "list",
+                "apps": app.get_dict()
+            })
+
+    def list_programs(self, load):
+        app_list = Application.get_app_list()
+        thread.Thread(target=self.__list_programs, args=(app_list,)).start()
+
     def on_message(self, message):
-        log.debug("Recieved message %s" % message)
+        #try:
+        data = loads(message)
+        execs = {
+            "new": self.new_program,
+            "list": self.list_programs
+        }
+        execs[data["exec"]](data)
+        #except Exception as err:
+        #self.send_dict({"exec": "error", "message": str(err)})
  
     def on_close(self):
         log.info("Closed a connection")
 
-
-if __name__ == "__main__":
+def main():
     log.info("Starting CRI...")
     log.info("Developed by David Smerkous and Eli Smith")
 
@@ -216,14 +258,19 @@ if __name__ == "__main__":
     Program.kill_all()
     log.info("Done")
 
-    p = Program("gnome-terminal")
-    p.run()
+    log.info("Loading all available apps...")
+    Application.load_app_list()
 
-    sleep(5)
+    log.info("Starting websocket server")
+    service = web.Application([(r'/', CRI),])
+    listenr = httpserver.HTTPServer(service)
+    listenr.listen(server_port)
+    ioloop.IOLoop.instance().start()
 
-    p.kill()
 
-    #service = web.Application([(r'/', Service),])
-    #listenr = httpserver.HTTPServer(service)
-    #listenr.listen(base_port)
-    #ioloop.IOLoop.instance().start()
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as err:
+        log.error("Exiting... %s" % str(err))
+        Program.kill_all()
