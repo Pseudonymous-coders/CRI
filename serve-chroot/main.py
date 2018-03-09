@@ -1,5 +1,16 @@
+# -*- coding: utf-8 -*-
+"""CRI main file
+
+This module is the core of the CRI interface as it handles all of the virtual displays, vnc,
+app downloading, updating, removing, and more. This module specifically contains the program (vnc),
+and websocket server handlers.
+
+Developed By: David Smerkous and Eli Smith
+"""
+
 from logger import Logger
-from apps import Application
+from apps import Application, Package
+from distutils.spawn import find_executable
 from tornado import ioloop, httpserver, web, websocket
 from random import randint
 from time import sleep
@@ -26,6 +37,8 @@ log = Logger("CRI")
 
 # Globally locked variables
 programs = {}
+connections = set()
+master = None
 instances = 0
 
 # Program instance handler
@@ -39,8 +52,8 @@ class Program(object):
         for d in range(display_port, end_displays):
             try:
                 is_in = False
-                for p in programs.items():
-                    if p.get_port() == gen:
+                for p in programs.values():
+                    if p.get_port() == d:
                         is_in = True
                         break
                 if not is_in:
@@ -55,8 +68,8 @@ class Program(object):
             for d in range(proxy_ports, end_proxy_ports):
                 try:
                     is_in = False
-                    for p in programs.items():
-                        if p.get_proxy_port() == gen:
+                    for p in programs.values():
+                        if p.get_proxy_port() == d:
                             is_in = True
                             break
                     if not is_in:
@@ -100,8 +113,7 @@ class Program(object):
             #stdout=sp.PIPE, stderr=sp.PIPE)
         log.info("Waiting for the program to start")
         started = False
-        for i in range(0, 50):
-            sleep(0.25)
+        for i in range(0, 100):
             if self._proc.poll() is not None:
                 if self._proc.returncode == 0:
                     log.info("Program started!")
@@ -109,20 +121,23 @@ class Program(object):
                 else:
                     log.info("The program failed to start!")
                 break
+            sleep(0.1)
         if not started:
             log.error("Failed to start the program!")
         else:
             self._proxy_proc = sp.Popen(["websockify", "%d" % self._proxy_port, "localhost:%d" % self._port])
             started = False
-            for i in range(0, 50):
-                sleep(0.25)
-                if self._proxy_proc.poll() is not None:
-                    if self._proxy_proc.returncode == 0:
-                        log.info("Proxy started!")
-                        started = False
-                    else:
-                        log.info("The proxy failed to start!")
+            for i in range(0, 100):
+                proc = sp.Popen(["pgrep", "websockify"], stdout=sp.PIPE)
+                data = proc.communicate()[0]
+                rc = proc.returncode
+                if rc == 0:
+                    log.info("Proxy started!")
+                    started = True
                     break
+                sleep(0.1)
+            if not started:
+                log.error("The proxy failed to start!")
             log.info("Starting %s on port %d and proxied with websocket to port %d" % (self._name, self._port, self._proxy_port))
 
     def kill(self):
@@ -205,15 +220,38 @@ class CRI(websocket.WebSocketHandler):
         self.write_message(dumps(dictionary))
 
     def open(self):
-        log.info("New connection made")
+        global connections, master
+        log.info("Connected with %s" % self.request.remote_ip)
+        connections.add(self) # Add myself to the connection list
+
+        # Respond with a positive status
         self.send_dict({"exec": "status", "status": True})
 
-    def new_program(self, load):
-        global programs
+        # Check to see if this connection can be a master
+        if master is None:
+            self.send_dict({"exec": "master"})
+
+    def run_program(self, load):
+        global programs, master
+        if master is None:
+            log.error("Trying to run program with no master connection!")
+            self.send_dict({"exec": "error", "message": "No master connection (No connection that can make windows)!"})
+            return
+
+        # Check to make sure the executable exists
+        check_p = load["name"]
+        if " " in check_p:
+            check_p = check_p.split(" ")[0] # Get the first argument
+        
+        if find_executable(check_p) is None:
+            log.error("Couldn't find executable %s" % check_p)
+            self.send_dict({"exec": "error", "message": "The executable %s doesn't exist or isn't in the PATH env variable" % check_p})
+            return
+
         n_id = str(uuid4())
         programs[n_id] = Program(load["name"])
         self.send_dict({
-            "exec": "new",
+            "exec": "run",
             "name": load["name"],
             "uuid": n_id,
             "port": programs[n_id].get_proxy_port()
@@ -225,30 +263,161 @@ class CRI(websocket.WebSocketHandler):
             "uuid": n_id
         })
 
+    def set_master(self, load):
+        global master
+        if load["status"]:
+            log.info("Setting master to %s" % self.request.remote_ip)
+            master = self
+        else:
+            log.info("Master status declined by %s" % self.request.remote_ip)
+            self.check_master()
+        self.send_dict({
+            "exec": "set_master",
+            "status": load["status"]
+        })
+        log.info("The master has been set!")
+
+    def get_master(self, load):
+        global master
+        log.info("Getting master information for %s" % self.request.remote_ip)
+        self.send_dict({
+            "exec": "get_master",
+            "status": (False if master is None else True)
+        })
+
     def __list_programs(self, apps):
         for app in apps:
             self.send_dict({
                 "exec": "list",
-                "apps": app.get_dict()
+                "app": app.get_dict()
             })
+        self.send_dict({
+            "exec": "list_done"
+        })
 
     def list_programs(self, load):
         app_list = Application.get_app_list()
         thread.Thread(target=self.__list_programs, args=(app_list,)).start()
 
+    def __search_packages(self, name):
+        status = Package.search(name, lambda d: self.send_dict({
+            "exec": "search",
+            "package": d
+        }))
+
+        if status is None:
+            self.send_dict({
+                "exec": "search_done"
+            })
+        else:
+            self.send_dict({
+                "exec": "error",
+                "message": status
+            })
+
+    def search_packages(self, load):
+        log.info("Searching for package %s" % load["search"])
+        thread.Thread(target=self.__search_packages, args=(load["search"],)).start()
+
+    def __install_package(self, name):
+        status = Package.install(name, self)
+        if status is not None:
+            self.send_dict({
+                "exec": "error",
+                "message": status
+            })
+        log.info("Loading the new app list")
+        Application.load_app_list()
+        Package.reload_cache(self)
+
+    def install_package(self, load):
+        log.info("Installing packages %s" % load["install"])
+        thread.Thread(target=self.__install_package, args=(load["install"],)).start()
+
+    def __delete_package(self, name, purge):
+        status = Package.delete(name, self, purge)
+        if status is not None:
+            self.send_dict({
+                "exec": "error",
+                "message": status
+            })
+        log.info("Loading the new app list")
+        Application.load_app_list()
+        Package.reload_cache(self)
+
+    def delete_package(self, load):
+        log.info("Deleting packages %s" % load["delete"])
+        thread.Thread(target=self.__delete_package, args=(load["delete"], load["purge"])).start()
+
+    def kill_program(self, load):
+        global programs
+        status = True
+        try:
+            if load["uuid"] not in programs:
+                self.send_dict({"exec": "error", "message": "Program doesn't exist"})
+                return
+            log.info("Killing program %s" % programs[load["uuid"]].get_name())
+
+            # Kill the program
+            programs[load["uuid"]].kill()
+
+            # Delete the program element
+            del programs[load["uuid"]]
+
+            log.info("Killed the program!")
+        except Exception as err:
+            log.error("Failed to kill the program (err: %s)" % str(err))
+
+        self.send_dict({"exec": "kill", "status": status})
+
+    def check_master(self):
+        global programs, master
+        if master is None:
+            log.info("There are no more connections left! Killing all programs...")
+            for p in programs.values():
+                try:
+                    p.kill()
+                except Exception as err:
+                    log.error("Failed to kill program (err: %s)" % str(err))
+            programs = {}
+            log.info("Done")
+
     def on_message(self, message):
         #try:
         data = loads(message)
         execs = {
-            "new": self.new_program,
-            "list": self.list_programs
+            "set_master": self.set_master,
+            "get_master": self.get_master,
+            "run": self.run_program,
+            "kill": self.kill_program,
+            "list": self.list_programs,
+            "search": self.search_packages,
+            "install": self.install_package,
+            "delete": self.delete_package
         }
         execs[data["exec"]](data)
         #except Exception as err:
         #self.send_dict({"exec": "error", "message": str(err)})
  
     def on_close(self):
-        log.info("Closed a connection")
+        global programs, connections, master
+        log.info("Disconnecting...")
+
+        if master == self:
+            log.warning("Removing the master connection!")
+            master = None
+
+        # Remove this connection from the list before requesting another master connection
+        connections.remove(self)
+
+        if master is None and len(connections) == 0:
+            self.check_master()
+        elif master is None:
+            # Request another master connection
+            log.info("Asking other connections if they want to be master")
+            for c in connections:
+                c.send_dict({"exec": "master"}) # Request if the other connections can be the master connection
+        log.info("Disconnected with %s" % self.request.remote_ip)
 
 def main():
     log.info("Starting CRI...")

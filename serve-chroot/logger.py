@@ -20,7 +20,7 @@ LOGGER_NAME = "CRI"
 LOGGER_LEVEL = DEBUG
 LOGGER_STORE_DAYS = 5 # Maximum amount of days to store a log file before deleting it
 
-LOGGER_FORMAT = Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
+LOGGER_FORMAT = Formatter("%(asctime)s [%(levelname)-5.5s] %(message)s")
 LOGGER_FILE_PATH = "%s/logs" % dirname(realpath(__file__))
 LOGGER_FILE_DATE_FORMAT = "%d-%m-%y--%H-%M-%S"
 LOGGER_FILE_DATE = strftime(LOGGER_FILE_DATE_FORMAT)
