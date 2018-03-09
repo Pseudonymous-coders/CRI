@@ -66,7 +66,7 @@ class CriFetchProgress(AcquireProgress):
             "bytes": self.fetched_bytes,
             "total_bytes": self.total_bytes,
             "bytes_second": self.current_cps
-        })
+        }, True)
         return True
 
 class CriInstallProgress(InstallProgress):
@@ -84,13 +84,13 @@ class CriInstallProgress(InstallProgress):
         log.info("Starting to %s package" % self._flag)
         self._socket.send_dict({
             "exec": "%s_start" % self._flag
-        })
+        }, True)
 
     def finish_update(self):
         log.info("Finished %s the package" % self._flag)
         self._socket.send_dict({
             "exec": "%s_finish" % self._flag
-        })
+        }, True)
 
     def status_change(self, pkg, percent, status):
         self._socket.send_dict({
@@ -98,7 +98,7 @@ class CriInstallProgress(InstallProgress):
             "package": pkg,
             "percent": percent,
             "status": status
-        })
+        }, True)
 
 # Define the progress objects
 f_progress = CriFetchProgress()
@@ -165,14 +165,14 @@ class Package(object):
             websocket.send_dict({
                 "exec": "error",
                 "message": "Failed to reload cache"
-            })
+            }, True)
         log.info("Done reloading cache")
 
     @staticmethod
     def search(name, websocket):
         try:
             if not check_internet():
-
+                return "No internet connection"
             for p in cche.keys():
                 if name in p:
                     if cche[p].candidate.downloadable:
@@ -187,6 +187,9 @@ class Package(object):
     @staticmethod
     def install(name, websocket):
         try:
+            if not check_internet():
+                return "No internet connection"
+            
             if name not in cche:
                 return "Package not found!"
 
@@ -224,7 +227,7 @@ class Package(object):
 
             websocket.send_dict({
                 "exec": "aquire_start"
-            })
+            }, True)
 
             f_progress.set_socket(websocket)
             i_progress.set_socket(websocket, "delete")

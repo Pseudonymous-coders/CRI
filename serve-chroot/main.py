@@ -216,8 +216,19 @@ class CRI(websocket.WebSocketHandler):
     def check_origin(self, origin):
         return True
  
-    def send_dict(self, dictionary):
-        self.write_message(dumps(dictionary))
+    def send_dict(self, dictionary, to_all=False):
+        global connections
+        try:
+            if to_all:
+                for c in connections:
+                    try:
+                        c.write_message(dumps(dictionary))
+                    except:
+                        log.error("Failed to write message %s to all clients" % dumps(dictionary))
+            else:
+                self.write_message(dumps(dictionary))
+        except:
+            log.error("Failed to write message %s" % dumps(dictionary))
 
     def open(self):
         global connections, master
